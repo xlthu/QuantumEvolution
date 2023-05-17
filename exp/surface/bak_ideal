@@ -1,0 +1,75 @@
+/* ------------------------ Ideal ------------------------ */
+
+class IdleOp : public Op {
+public:
+    void apply(State& out, const State& s, double t) {
+        out = 0;
+    }
+};
+
+/* ------------------------ Ideal. ------------------------ */
+    
+    if (ideal_mode) {
+        IdleOp idle;
+        sys->unr.set_H(&idle);
+
+        sz_t cycle_duration = 9 * 3;
+
+        while (true) {
+            solver.set_suggested_first_step_size(0.0);
+            sys->unr.new_trajectory();
+            
+            // 1. Init
+            auto s_g = pool.allocate_similar(init_state);
+            auto& s = s_g.state;
+            s = init_state;
+
+            // 2. Repeat extraction x n_rounds + correct + detect logical error
+            //    Until one logical error is detected
+            for (sz_t cycle = 0; true; ++cycle) {
+                cout << "Cycle " << cycle << ": ";
+
+                sys->unr.solve(&solver, s, 0, cycle_duration);
+                
+                output_jumps(cout, sys); cout << endl;
+
+                // 2.3.2 Apply circuit, measure, reset, correct
+                extraction_perfect.run(s);
+
+                Syndrome syndromeX_perfect;
+                Syndrome syndromeZ_perfect;
+
+                sz_t resX = s.measure2(decoder_perfect.measX, eng); syndromeX_perfect.shift_in(resX);
+                sz_t resZ = s.measure2(decoder_perfect.measZ, eng); syndromeZ_perfect.shift_in(resZ);
+
+                reset(s, sys->n_qubits, resX | resZ);
+
+                cout << "    Correct X:" << endl;
+                correct(decoder_perfect.decodeX, syndromeX_perfect, s, nullptr, "      ");
+
+                cout << "    Correct Z:" << endl;
+                correct(decoder_perfect.decodeZ, syndromeZ_perfect, s, nullptr, "      ");
+
+                // 2.3.3 Check
+                double fidelity_none = state_fidelity(s, init_state);
+                double fidelity_err = state_fidelity(s, init_state_err);
+
+                cout << "    Check:" << endl;
+                cout << "      Fidelity (none vs error): " << fidelity_none << " " << fidelity_err << endl;
+
+                if (fidelity_none > fidelity_err) {
+                    cout << "      Logical Error: None" << endl;
+                }
+                else {
+                    results["cycles"].push_back(cycle);
+
+                    cout << "      Logical Error Detected at Cycle " << cycle << endl;
+                    dump_result(result_file, results);
+                    break;
+                }
+
+            } // for (sz_t cycle = 0; true; ++cycle)
+        } // while (true)
+
+        goto finish;
+    }

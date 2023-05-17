@@ -1,0 +1,31 @@
+    // State
+    State s1{std::vector<sz_t>{2}};
+    s1[0] = 1;
+    s1[1] = 10;
+    s1.normalize();
+
+    State s{std::vector<const State*>(sys.n_qubits, &s1)};
+    pool.reserve(10, s);
+
+    // Execute
+    ZVODESolver solver{pool};
+
+    auto ref = load_dm("/home/xl/pulse_surface/sim/mat");
+
+    dm_t dm{1u << sys.n_qubits, 1u << sys.n_qubits};
+    Assert(ref.rows() == dm.rows() && ref.columns() == dm.columns());
+
+    auto tmp_g = pool.allocate_similar(s);
+    State& tmp = tmp_g.state;
+
+    for (std::size_t i = 1; i <= ntraj; ++i) {
+        sys.unr.new_trajectory();
+        tmp = s;
+        execute(extraction, tmp, &solver);
+
+        dm += ket2dm(tmp.vector());
+
+        if (i % 10 == 0) {
+            cout << "i = " << i << ", " << std::setprecision(10) << dm_fidelity(ref, dm / i) << endl;
+        }
+    }
